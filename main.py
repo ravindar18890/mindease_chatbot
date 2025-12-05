@@ -7,7 +7,7 @@ from firebase_admin import credentials, firestore
 from datetime import datetime
 
 # ------------------ FIREBASE ADMIN FROM RENDER ENV VARIABLE ------------------ #
-os.environ["GRADIO_DISABLE_AUDIO"] = "1"
+
 # Read service account JSON from Render Environment Variable
 SERVICE_ACCOUNT_JSON = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
 
