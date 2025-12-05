@@ -1,4 +1,9 @@
-gradio==4.12.0
-firebase_admin
-requests
+pydub==0.25.1
+gradio==3.41.2
+firebase-admin
 python-dotenv
+requests
+google-cloud-firestore
+gunicorn
+uvicorn
+fastapi
