@@ -9,6 +9,8 @@ from datetime import datetime
 # Load environment variables
 load_dotenv()
 
+os.environ["GRADIO_DISABLE_AUDIO"] = "1"
+
 FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY")
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 
