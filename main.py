@@ -1,4 +1,4 @@
-import os
+'''import os
 import json
 import requests
 import gradio as gr
@@ -213,7 +213,181 @@ def create_app():
 # ------------------ RENDER ENTRY POINT ------------------ #
 if __name__ == "__main__":
     demo = create_app()
-    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 10000)))
+    demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 10000)))'''
+
+
+
+import os
+import json
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import requests
+from datetime import datetime
+
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+# -----------------------------
+# Load environment variables
+# -----------------------------
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY")
+
+# Firebase auth URLs
+FB_SIGNUP = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_API_KEY}"
+FB_SIGNIN = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}"
+
+# -----------------------------
+# Firebase Admin Initialization
+# -----------------------------
+cred_data = os.getenv("FIREBASE_ADMIN_JSON")
+
+if not cred_data:
+    raise Exception("❌ FIREBASE_ADMIN_JSON not found in environment variables.")
+
+cred_json = json.loads(cred_data)
+cred = credentials.Certificate(cred_json)
+
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+# -----------------------------
+# Flask App Setup
+# -----------------------------
+app = Flask(__name__)
+CORS(app)  # Allow React → Flask communication
+
+
+# -----------------------------
+# SIGNUP
+# -----------------------------
+@app.route('/api/signup', methods=['POST'])
+def signup():
+    data = request.json
+    email = data.get("email")
+    password = data.get("password")
+
+    fb_data = {"email": email, "password": password, "returnSecureToken": True}
+
+    try:
+        res = requests.post(FB_SIGNUP, json=fb_data)
+        res.raise_for_status()
+        user = res.json()
+
+        db.collection("users").document(user["localId"]).set({
+            "email": email,
+            "created_at": datetime.utcnow(),
+            "last_login": None
+        })
+
+        return jsonify({"message": "Signup successful"}), 200
+
+    except Exception:
+        return jsonify({"error": res.json()["error"]["message"]}), 400
+
+
+# -----------------------------
+# LOGIN
+# -----------------------------
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.json
+    email = data.get("email")
+    password = data.get("password")
+
+    fb_data = {"email": email, "password": password, "returnSecureToken": True}
+
+    try:
+        res = requests.post(FB_SIGNIN, json=fb_data)
+        res.raise_for_status()
+        user = res.json()
+
+        db.collection("users").document(user["localId"]).update({
+            "last_login": datetime.utcnow()
+        })
+
+        return jsonify({
+            "message": "Login successful",
+            "uid": user["localId"],
+            "email": user["email"]
+        }), 200
+
+    except Exception:
+        return jsonify({"error": "Invalid email or password"}), 400
+
+
+# -----------------------------
+# CHAT WITH MISTRAL
+# -----------------------------
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    data = request.json
+    uid = data.get("uid")
+    message = data.get("message")
+
+    if not uid:
+        return jsonify({"error": "Missing UID"}), 400
+
+    try:
+        response = requests.post(
+            "https://api.mistral.ai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"},
+            json={
+                "model": "mistral-small-latest",
+                "messages": [{"role": "user", "content": message}]
+            }
+        )
+        response.raise_for_status()
+        reply = response.json()["choices"][0]["message"]["content"]
+
+        # Save messages to Firestore
+        db.collection("chats").document(uid).collection("messages").add({
+            "role": "user",
+            "text": message,
+            "time": datetime.utcnow()
+        })
+        db.collection("chats").document(uid).collection("messages").add({
+            "role": "bot",
+            "text": reply,
+            "time": datetime.utcnow()
+        })
+
+        return jsonify({"reply": reply}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# -----------------------------
+# LOAD CHAT HISTORY
+# -----------------------------
+@app.route('/api/history/<uid>', methods=['GET'])
+def load_history(uid):
+    try:
+        docs = db.collection("chats").document(uid).collection("messages").order_by("time").stream()
+
+        history = []
+        for d in docs:
+            msg = d.to_dict()
+            history.append({
+                "role": msg["role"],
+                "text": msg["text"],
+                "time": msg["time"].strftime("%Y-%m-%d %H:%M:%S")
+            })
+
+        return jsonify(history), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# -----------------------------
+# Run Flask
+# -----------------------------
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
 
 
 
