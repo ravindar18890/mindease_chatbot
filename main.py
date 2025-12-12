@@ -229,6 +229,6 @@ with gr.Blocks(css=CUSTOM_CSS, theme=gr.themes.Soft()) as app:
 
 
 port = int(os.environ.get("PORT", 10000))
-app.launch()
+app.launch(server_name="0.0.0.0", server_port=port)
 
 
